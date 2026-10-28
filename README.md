@@ -10,7 +10,7 @@
 | 게임 | 설명 | 플레이 | 문서 |
 | --- | --- | --- | --- |
 | 🌟 별빛 받기 | 호수 위 작은 배로 떨어지는 별빛을 담는 2D 게임 | [starlight/](https://eple-lab.github.io/dalbit-lake/starlight/) | [README](starlight/README.md) |
-| 🧚 반딧불이 모으기 | 작은 요정이 되어 숲을 날며 반딧불이 5마리를 병에 담는 3D 게임 | [fireflies/](https://eple-lab.github.io/dalbit-lake/fireflies/) | [README](fireflies/README.md) · [PRD](docs/firefly-prd.md) |
+| 🧚 반딧불이 모으기 | 작은 요정이 되어 숲을 날며 반딧불이 5마리를 병에 담는 3D 게임 | [fireflies/](https://eple-lab.github.io/dalbit-lake/fireflies/) | [README](fireflies/README.md) · [PRD](docs/fireflies-prd.md) |
 
 메인 화면의 카드를 누르면 각 게임으로 가고, 게임의 처음 화면에서 "← 메인으로"를 누르면 돌아옵니다.
 
@@ -28,8 +28,8 @@ dalbit-lake/
 │  ├─ script.js
 │  └─ README.md
 ├─ docs/
-│  └─ firefly-prd.md   반딧불이 모으기 기획 문서 (인터뷰로 확정한 결정 기록 포함)
-└─ firefly-request.md  반딧불이 모으기 처음 요청문 (과제 템플릿 형식)
+│  └─ fireflies-prd.md   반딧불이 모으기 기획 문서 (인터뷰로 확정한 결정 기록 포함)
+└─ fireflies-request.md  반딧불이 모으기 처음 요청문 (과제 템플릿 형식)
 ```
 
 ## 내 컴퓨터에서 열기

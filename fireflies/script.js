@@ -1,18 +1,25 @@
 'use strict';
 // 반딧불이 모으기 — 요정의 눈(1인칭)으로 달빛 호수 숲을 날며 반딧불이 5마리를 병에 담는 3D 게임.
-// 규칙은 docs/firefly-prd.md를 따릅니다.
+// 규칙은 docs/fireflies-prd.md를 따릅니다.
 
 // ===================================================================
 // 기본 값
 // ===================================================================
-const LAKE_R = 46;          // 호수 반지름
-const WORLD_R = 112;        // 날 수 있는 범위
-const SPEEDS = [0, 2.6, 5, 9, 14];
+const LAKE_R = 28;          // 호수 반지름
+const WORLD_R = 72;         // 날 수 있는 범위
+const DRAGON_R = 11;        // 용이 헤엄치는 둥근 길
+const MAX_SPEED = 14;
+const ACCEL = 9;            // ↑ 누르고 있을 때 빨라지는 정도 (초당)
+const BRAKE = 12;           // ↓ 누르고 있을 때 느려지는 정도
+const COAST = 1.4;          // 손을 떼면 점점 느려지는 정도
+const FAST = 7.5;           // 이보다 빠르면 반딧불이가 흩어져요
+const CALL_RANGE = 13;      // 손을 내밀면 이 거리 안의 반딧불이가 다가와요
 const SPEED_NAMES = ['둥둥', '느림', '느림', '빠름', '빠름'];
+const speedStep = s => s < 0.3 ? 0 : s < 3.8 ? 1 : s < FAST ? 2 : s < 11 ? 3 : 4;
 const TIME_LIMIT = 180;
 const GOAL = 5;
-const MIN_Y = 1.1, MAX_Y = 48;
-const START = new THREE.Vector3(0, 7, LAKE_R + 8);
+const MIN_Y = 1.1, MAX_Y = 38;
+const START = new THREE.Vector3(0, 6, LAKE_R + 7);
 
 const lerp = (a, b, k) => a + (b - a) * k;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -42,7 +49,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060a1c);
-scene.fog = new THREE.FogExp2(0x0b1230, 0.011);
+scene.fog = new THREE.FogExp2(0x0b1230, 0.014);
 
 // 메인 화면: 요정의 눈. 레이어 0 = 세상, 레이어 2 = 내 팔·다리·병
 const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 900);
@@ -185,7 +192,7 @@ camera.add(fairyLight);
 
   const hillMat = new THREE.MeshBasicMaterial({ color: 0x0b1230 });
   for (let i = 0; i < 30; i++) {
-    const a = (i / 30) * Math.PI * 2 + rr(-0.05, 0.05), d = rr(190, 230), h = rr(30, 75);
+    const a = (i / 30) * Math.PI * 2 + rr(-0.05, 0.05), d = rr(150, 185), h = rr(25, 60);
     const hill = new THREE.Mesh(new THREE.ConeGeometry(rr(30, 50), h, 6), hillMat);
     hill.position.set(Math.cos(a) * d, h / 2 - 2, Math.sin(a) * d);
     scene.add(hill);
@@ -195,7 +202,7 @@ camera.add(fairyLight);
   const n = 500, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
   const palette = [[0.55, 0.6, 1], [0.8, 0.55, 1], [0.6, 0.95, 0.9], [1, 0.85, 0.6]];
   for (let i = 0; i < n; i++) {
-    const a = rand() * Math.PI * 2, d = rr(LAKE_R + 3, 140);
+    const a = rand() * Math.PI * 2, d = rr(LAKE_R + 3, 110);
     pos.set([Math.cos(a) * d, rr(0.1, 0.5), Math.sin(a) * d], i * 3);
     col.set(palette[Math.floor(rand() * palette.length)], i * 3);
   }
@@ -270,7 +277,7 @@ function addTree(type, x, z) {
     ball(h + 2.4, cr, 0.5);
     ball(h + 3.4, cr * 0.55, 0.7, rr(-2, 2), rr(-2, 2));
     branch(h * 0.65, rr(4, 5));
-  } else {
+  } else if (type === 'thin') {
     const h = rr(19, 27), r = rr(0.45, 0.65);
     trunk(r * 0.6, r, h);
     const ch = h * 0.62;
@@ -280,6 +287,13 @@ function addTree(type, x, z) {
     t.canopy.push({ c: new THREE.Vector3(x, h - ch * 0.75 + 2, z), r: 2.6, sy: 1 });
     t.canopy.push({ c: new THREE.Vector3(x, h - ch * 0.4 + 2, z), r: 1.9, sy: 1 });
     branch(rr(5, 9), rr(3, 4));
+  } else {
+    // 호수 섬의 작은 나무 — 낮은 가지에 앉아 쉬기 좋아요
+    const h = rr(6, 8), r = rr(0.45, 0.6);
+    trunk(r * 0.7, r, h);
+    ball(h + 1.6, rr(2.6, 3.2), 0.8);
+    branch(rr(2.8, 3.6), rr(2.4, 3));
+    branch(rr(4.4, 5.2), rr(2.2, 2.8));
   }
   trees.push(t);
 }
@@ -287,17 +301,28 @@ function addTree(type, x, z) {
 {
   const placed = [];
   let tries = 0;
-  while (placed.length < 44 && tries < 4000) {
+  while (placed.length < 32 && tries < 4000) {
     tries++;
-    const a = rand() * Math.PI * 2, d = rr(LAKE_R + 6, WORLD_R + 20);
+    const a = rand() * Math.PI * 2, d = rr(LAKE_R + 5, WORLD_R + 14);
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     if (Math.hypot(x - START.x, z - START.z) < 11) continue;
     const roll = rand();
     const type = roll < 0.25 ? 'giant' : roll < 0.6 ? 'wide' : 'thin';
-    const need = type === 'giant' ? 16 : type === 'wide' ? 15 : 9;
+    const need = type === 'giant' ? 14 : type === 'wide' ? 13 : 8;
     if (placed.some(p => Math.hypot(p.x - x, p.z - z) < Math.max(need, p.need))) continue;
     placed.push({ x, z, need });
     addTree(type, x, z);
+  }
+
+  // 호수 위 작은 섬 세 개 (용이 헤엄치는 길과 물가 사이)
+  const islandMat = std(0x2b3a2c);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.6, d = (DRAGON_R + LAKE_R) / 2 + 1.5;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const island = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3, 0.5, 9), islandMat);
+    island.position.set(x, 0.1, z);
+    scene.add(island);
+    addTree('island', x, z);
   }
 }
 
@@ -305,17 +330,19 @@ function addTree(type, x, z) {
 // 호수의 수호신 용 — 온화하고 따뜻하게
 // ===================================================================
 const dragon = (() => {
-  const SEG = 16;
-  const bodyMat = std(0xc3ece0, { emissive: 0x24463f, roughness: 0.6 });
+  // 길고 가는 몸이 지렁이처럼 꿈틀꿈틀 — 마디를 촘촘히 겹쳐 하나로 이어 보이게
+  const SEG = 34;
+  const bodyMat = std(0xc3ece0, { emissive: 0x24463f, roughness: 0.6, flatShading: false });
   const finMat = std(0xffb7c9, { emissive: 0x5a2a36 });
   const goldMat = std(0xffd98a, { emissive: 0x6a4a10 });
   const segs = [];
   for (let i = 0; i < SEG; i++) {
-    const r = lerp(1.5, 0.35, i / (SEG - 1));
-    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 10), bodyMat);
+    const k = i / (SEG - 1);
+    const r = k < 0.1 ? lerp(0.6, 0.8, k / 0.1) : k > 0.7 ? lerp(0.8, 0.25, (k - 0.7) / 0.3) : 0.8;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), bodyMat);
     m.scale.setScalar(r);
-    if (i % 2 === 1 && i < SEG - 2) {
-      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.9, 5), finMat);
+    if (i % 3 === 1 && i < SEG - 4) {
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 5), finMat);
       fin.position.y = 0.95;
       m.add(fin);
     }
@@ -324,6 +351,7 @@ const dragon = (() => {
   }
 
   const head = new THREE.Group();
+  head.scale.setScalar(0.62);
   scene.add(head);
   const skull = new THREE.Mesh(new THREE.SphereGeometry(1.5, 14, 12), bodyMat);
   skull.scale.set(1.1, 0.9, 1.2);
@@ -351,53 +379,59 @@ const dragon = (() => {
   const eyes = [];
   for (const s of [-1, 1]) {
     const eye = new THREE.Group();
-    eye.position.set(s * 0.7, 0.35, -0.95);
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), new THREE.MeshBasicMaterial({ color: 0x2a1d33 }));
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    shine.position.set(s * -0.06, 0.1, -0.2);
-    eye.add(ball, shine);
+    eye.position.set(s * 0.68, 0.42, -1.42);
+    const white = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 10), new THREE.MeshBasicMaterial({ color: 0xfffbf0 }));
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), new THREE.MeshBasicMaterial({ color: 0x2a1d33 }));
+    ball.position.set(s * 0.04, 0, -0.17);
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    shine.position.set(s * -0.04, 0.11, -0.4);
+    eye.add(white, ball, shine);
     head.add(eye);
     eyes.push(eye);
   }
-  const warmth = new THREE.PointLight(0xffc890, 1.5, 30);
+  const warmth = new THREE.PointLight(0xffc890, 1.0, 22);
   warmth.position.set(0, 1.5, -1);
   head.add(warmth);
-  const aura = glowSprite(0xffe2b8, 9, 0.22);
+  const aura = glowSprite(0xffe2b8, 9, 0.12);
   head.add(aura);
 
   return {
     head, segs, eyes, angle: rand() * 6, squint: 0,
-    headPos: new THREE.Vector3(), lastGreet: -99,
+    headPos: new THREE.Vector3(), lastGreet: -99, blinkIn: 2, blink: 0,
   };
 })();
 
 function dragonPathPos(theta, out) {
-  return out.set(Math.cos(theta) * 18, 0, Math.sin(theta) * 18);
+  return out.set(Math.cos(theta) * DRAGON_R, 0, Math.sin(theta) * DRAGON_R);
 }
 
 function updateDragon(dt, t) {
   dragon.angle += 0.07 * dt;
   const th = dragon.angle;
   const hp = dragonPathPos(th, dragon.headPos);
-  hp.y = 2.6 + Math.sin(t * 0.6) * 0.45;
+  hp.y = 1.9 + Math.sin(t * 0.6) * 0.4;
   dragon.head.position.copy(hp);
   const ahead = dragonPathPos(th + 0.06, new THREE.Vector3());
   ahead.y = hp.y - 0.4;
   dragon.head.lookAt(ahead);
   dragon.head.rotateY(Math.PI); // 머리 모델은 -z를 바라봄
 
-  const p = new THREE.Vector3();
+  // 위아래로 물결치고, 옆으로도 꿈틀거려요
   dragon.segs.forEach((s, i) => {
-    dragonPathPos(th - (i + 1) * 0.075, p);
-    const bodyY = 0.15 + Math.sin(t * 1.1 - i * 0.6) * 0.75;
-    p.y = i < 3 ? lerp(hp.y - 0.6, bodyY, (i + 1) / 4) : bodyY;
-    s.m.position.copy(p);
+    const a = th - (i + 1) * 0.042;
+    const r = DRAGON_R + Math.sin(t * 1.3 - i * 0.32) * 0.9 * Math.min(1, i / 6);
+    const bodyY = 0.2 + Math.sin(t * 1.7 - i * 0.42) * 0.85;
+    s.m.position.set(Math.cos(a) * r, i < 4 ? lerp(hp.y - 0.5, bodyY, (i + 1) / 5) : bodyY, Math.sin(a) * r);
   });
 
-  // 요정이 다가오면 눈을 가늘게 뜨고 반겨요
+  // 눈 깜박임 (몇 초마다 한 번), 요정이 다가오면 눈을 가늘게 뜨고 반겨요
+  dragon.blinkIn -= dt;
+  if (dragon.blinkIn <= 0) { dragon.blink = 0.22; dragon.blinkIn = rr(2, 4.5); }
+  dragon.blink = Math.max(0, dragon.blink - dt);
+  const blinkScale = dragon.blink > 0 ? 0.08 : 1;
   const near = state === 'play' && player.pos.distanceTo(hp) < 14;
   dragon.squint = lerp(dragon.squint, near ? 1 : 0, damp(4, dt));
-  for (const e of dragon.eyes) e.scale.y = lerp(1, 0.22, dragon.squint);
+  for (const e of dragon.eyes) e.scale.y = Math.min(blinkScale, lerp(1, 0.25, dragon.squint));
   if (near && t - dragon.lastGreet > 25) {
     dragon.lastGreet = t;
     say('용이 눈을 가늘게 뜨고 반겨요 ☺', 3, true);
@@ -410,7 +444,7 @@ function updateDragon(dt, t) {
 const animals = [];
 
 function randomGroundSpot() {
-  const a = rand() * Math.PI * 2, d = rr(LAKE_R + 5, 100);
+  const a = rand() * Math.PI * 2, d = rr(LAKE_R + 5, WORLD_R - 4);
   return new THREE.Vector3(Math.cos(a) * d, 0, Math.sin(a) * d);
 }
 
@@ -499,7 +533,7 @@ function makeBird() {
     wings.push({ w, s });
   }
   scene.add(g);
-  return { kind: 'bird', g, wings, R: rr(45, 90), h: rr(28, 46), ang: rand() * 6, w: rr(0.08, 0.16) * (rand() < 0.5 ? -1 : 1), phase: rand() * 6 };
+  return { kind: 'bird', g, wings, R: rr(30, 62), h: rr(22, 34), ang: rand() * 6, w: rr(0.08, 0.16) * (rand() < 0.5 ? -1 : 1), phase: rand() * 6 };
 }
 
 for (let i = 0; i < 3; i++) { const a = makeDeer(); a.g.position.copy(randomGroundSpot()); animals.push(a); }
@@ -603,7 +637,7 @@ const fairy = (() => {
   const glow = glowSprite(0xfff1b0, 1.6, 0.5);
   glow.position.y = 0.2;
   g.add(glow);
-  g.scale.setScalar(5);
+  g.scale.setScalar(2.4);
   setLayer(g, 1);
   scene.add(g);
 
@@ -760,12 +794,12 @@ for (const h of Object.values(hands)) poseHand(h, 'idle', 1);
 const fireflies = [];
 const clusterCenters = [];
 for (let i = 0; i < 4; i++) {
-  const a = (i / 4) * Math.PI * 2 + rr(0.2, 1.2), d = rr(26, 92);
+  const a = (i / 4) * Math.PI * 2 + rr(0.2, 1.2), d = rr(16, 62);
   clusterCenters.push(new THREE.Vector3(Math.cos(a) * d, rr(3, 8), Math.sin(a) * d));
 }
 
 function randomAir() {
-  const a = rand() * Math.PI * 2, d = rr(15, 100);
+  const a = rand() * Math.PI * 2, d = rr(8, 66);
   return new THREE.Vector3(Math.cos(a) * d, rr(2.5, 10), Math.sin(a) * d);
 }
 
@@ -841,6 +875,7 @@ let activeHand = null;          // 'left' | 'right' | null — 먼저 올린 손
 let handFly = null;             // 다가오거나 손등에 앉은 반딧불이
 let capture = null;             // 병에 담는 동작
 let scatterMsgCool = 0;
+let nearbyFree = false;     // 손을 내밀면 다가올 반딧불이가 근처에 있는지 (안내 문구용)
 let t = 0, last = performance.now();
 
 const down = new Set();
@@ -870,6 +905,10 @@ function updateMessage(dt) {
   if (msgTimer > 0) { text = msgText; warm = msgWarm; }
   else if (handFly && handFly.state === 'hand' && !capture) { text = '\\ 키로 살포시 담아요 ✨'; warm = true; }
   else if (handFly && handFly.state === 'approach') { text = '반딧불이가 천천히 다가와요…'; warm = true; }
+  else if (nearbyFree && !activeHand && !capture) {
+    text = player.speed > FAST ? '천천히… 빠르면 반딧불이가 놀라요' : '손을 올려보세요  [ 왼손 / ] 오른손 ✋';
+    warm = player.speed <= FAST;
+  }
   else if (player.sitting) { text = '나뭇가지에서 쉬는 중 🌿'; }
   if (state !== 'play') text = '';
   const key = text + warm;
@@ -964,8 +1003,6 @@ function press(code) {
   }
   if (capture) return;
 
-  if (code === 'ArrowUp') player.step = Math.min(4, player.step + 1);
-  if (code === 'ArrowDown') player.step = Math.max(0, player.step - 1);
   if (code === 'BracketLeft' && !activeHand) activeHand = 'left';
   if (code === 'BracketRight' && !activeHand) activeHand = 'right';
   if (code === 'Backslash') {
@@ -1041,18 +1078,18 @@ const seatWorld = new THREE.Vector3();
 
 function updateFireflies(dt) {
   const playing = state === 'play';
-  const fast = playing && player.speed > 7.5;
+  const fast = playing && player.speed > FAST;
   const handObj = activeHand ? hands[activeHand] : null;
   if (handObj) handObj.seat.getWorldPosition(seatWorld);
 
   // 손을 올리고 천천히 있으면 가까운 반딧불이가 다가와요
-  if (playing && handObj && !handFly && !capture && player.step <= 2) {
+  if (playing && handObj && !handFly && !capture && player.speed <= FAST) {
     let best = null, bestScore = Infinity;
     const inv = camera.matrixWorldInverse;
     for (const f of fireflies) {
       if (f.state !== 'free') continue;
       const d = f.pos.distanceTo(player.pos);
-      if (d > 9) continue;
+      if (d > CALL_RANGE) continue;
       const lx = tmpV.copy(f.pos).applyMatrix4(inv).x;
       const sideBonus = (activeHand === 'left' ? lx > 0.5 : lx < -0.5) ? 4 : 0; // 그 손 쪽 반딧불이 먼저
       if (d + sideBonus < bestScore) { bestScore = d + sideBonus; best = f; }
@@ -1060,12 +1097,14 @@ function updateFireflies(dt) {
     if (best) { best.state = 'approach'; handFly = best; }
   }
 
+  nearbyFree = false;
   for (const f of fireflies) {
     if (f.state === 'jar') continue;
     if (f.state === 'free') {
       fireflyHome(f, t, tmpV);
       f.pos.lerp(tmpV, damp(f.calm > 0 ? 0.35 : 0.9, dt));
       f.calm = Math.max(0, f.calm - dt);
+      if (playing && f.pos.distanceTo(player.pos) < CALL_RANGE) nearbyFree = true;
       if (f.kind === 'solo' && f.home.distanceTo(f.goal) < 1) f.goal = randomAir();
       if (f.kind === 'solo') f.home.lerp(f.goal, damp(0.06, dt));
       if (fast && f.pos.distanceTo(player.pos) < 7) {
@@ -1100,14 +1139,15 @@ function updateFireflies(dt) {
     if (f.state === 'jar') continue;
     const on = Math.pow(Math.max(0, Math.sin(t * f.blink + f.p1)), 2);
     const k = 0.35 + 0.65 * on;
-    const close = f.glow.layers.mask === 4; // 레이어 2 (손 가까이)
+    // 다가오거나 손에 있는 반딧불이는 더 크고 밝게
+    const near = f.state === 'approach' || f.state === 'hand' || f.state === 'capture';
     const d = f.pos.distanceTo(camera.position);
-    const sc = close ? clamp(d * 0.12, 0.03, 0.12) : clamp(d * 0.11, 0.05, 1);
+    const sc = near ? clamp(d * 0.32, 0.17, 0.75) : clamp(d * 0.11, 0.05, 1);
     f.glow.position.copy(f.pos);
     f.core.position.copy(f.pos);
-    f.glow.scale.setScalar(1.1 * sc * (0.8 + 0.4 * k));
-    f.core.scale.setScalar(0.28 * sc);
-    f.glow.material.opacity = 0.45 + 0.55 * k;
+    f.glow.scale.setScalar((near ? 1.6 : 1.1) * sc * (0.8 + 0.4 * k));
+    f.core.scale.setScalar((near ? 0.42 : 0.28) * sc);
+    f.glow.material.opacity = near ? 0.75 + 0.25 * k : 0.45 + 0.55 * k;
   }
 }
 
@@ -1116,7 +1156,7 @@ function startCapture() {
   handFly.state = 'capture';
   capture.from.copy(handFly.pos);
   camera.worldToLocal(capture.from);
-  player.step = 0;
+  player.speed = 0;
   player.sitting = null;
 }
 
@@ -1169,7 +1209,12 @@ function updatePlayer(dt) {
 
   p.yaw += turn * 1.5 * dt;
   forward.set(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-  p.speed = lerp(p.speed, p.sitting || busy ? 0 : SPEEDS[p.step], damp(2.2, dt));
+  // ↑ 누르는 동안 빨라지고, ↓ 누르는 동안 느려지고, 손을 떼면 점점 느려져요
+  const up = down.has('ArrowUp'), slow = down.has('ArrowDown');
+  if (p.sitting || busy || slow) p.speed = Math.max(0, p.speed - BRAKE * dt);
+  else if (up && !stunned) p.speed = Math.min(MAX_SPEED, p.speed + ACCEL * dt);
+  else p.speed = Math.max(0, p.speed - COAST * dt);
+  p.step = speedStep(p.speed);
 
   if (!p.sitting) {
     p.pos.addScaledVector(forward, p.speed * dt);
@@ -1191,17 +1236,21 @@ function updatePlayer(dt) {
 
   if (!p.sitting) collide();
   p.sitCool = Math.max(0, p.sitCool - dt);
-  if (!p.sitting && p.step === 0 && !busy && p.sitCool <= 0) trySit();
+  if (!p.sitting && p.speed < 0.3 && !busy && p.sitCool <= 0) trySit();
 
   // 1인칭 카메라: 숨 쉬듯 둥둥, 비틀거림, 기울임
   const breathe = Math.sin(t * Math.PI * 2 / 4);
-  const hover = p.sitting ? 0 : Math.sin(t * 1.8) * (p.step === 0 ? 0.14 : 0.05);
+  // 멈춰 있을수록 더 크게 둥둥
+  const still = p.sitting ? 0 : clamp(1 - p.speed / 3, 0, 1);
+  p.hover = lerp(p.hover || 0, still, damp(2, dt));
+  const hover = p.sitting ? 0 : Math.sin(t * 1.6) * (0.06 + 0.32 * p.hover);
+  const sway = p.sitting ? 0 : Math.sin(t * 1.1) * 0.035 * p.hover;
   const dip = busy ? -0.12 : 0;
   camera.position.set(p.pos.x, p.pos.y + hover + breathe * 0.05 + dip, p.pos.z);
-  const pitchTarget = busy ? -0.3 : p.sitting ? -0.32 : lift * 0.08;
+  const pitchTarget = busy ? -0.3 : p.sitting ? -0.32 : lift * 0.08 + Math.cos(t * 1.6) * 0.02 * p.hover;
   p.pitch = lerp(p.pitch, pitchTarget, damp(4, dt));
   p.roll = lerp(p.roll, -turn * 0.05, damp(3, dt));
-  camera.rotation.set(p.pitch + breathe * 0.006, p.yaw, p.roll + Math.sin(t * 18) * 0.14 * (p.stun / 1));
+  camera.rotation.set(p.pitch + breathe * 0.006, p.yaw, p.roll + sway + Math.sin(t * 18) * 0.14 * (p.stun / 1));
   camera.updateMatrixWorld();
 }
 
@@ -1212,7 +1261,7 @@ function bonk(normal) {
   p.bonkCool = 1.2;
   p.stun = 1;
   p.knock.copy(normal).multiplyScalar(5);
-  p.step = Math.min(p.step, 1);
+  p.speed = Math.min(p.speed, 2);
   sfx.bonk();
   showBonk();
   // 손등에 있던 반딧불이만 놀라 날아가요 (병 속 친구들은 그대로)
@@ -1250,7 +1299,7 @@ function collide() {
     }
   }
   // 용과 부딪히면 벌칙 없이 부드럽게 밀려나요
-  const parts = [{ pos: dragon.headPos, r: 1.9 }].concat(dragon.segs.map(s => ({ pos: s.m.position, r: s.r })));
+  const parts = [{ pos: dragon.headPos, r: 1.2 }].concat(dragon.segs.map(s => ({ pos: s.m.position, r: s.r })));
   for (const part of parts) {
     const d = p.distanceTo(part.pos);
     const lim = part.r + 0.7;
@@ -1338,9 +1387,9 @@ function updateFairy(dt) {
   const p = player;
   const g = fairy.g;
   g.visible = state !== 'start';
-  g.position.set(p.pos.x, p.pos.y - 0.6 + (p.sitting ? -0.9 : Math.sin(t * 1.8) * 0.15), p.pos.z);
+  g.position.set(p.pos.x, p.pos.y + (p.sitting ? -0.2 : -0.4 + Math.sin(t * 1.6) * (0.08 + 0.3 * (p.hover || 0))), p.pos.z);
   g.rotation.set(0, p.yaw, p.roll * 2);
-  const flap = p.sitting ? 0.25 + Math.sin(t * 2) * 0.1 : 0.55 + Math.sin(t * (p.step ? 26 : 16)) * 0.45;
+  const flap = p.sitting ? 0.25 + Math.sin(t * 2) * 0.1 : 0.55 + Math.sin(t * (p.speed > 0.3 ? 26 : 16)) * 0.45;
   for (const { pivot, s } of fairy.wings) pivot.rotation.y = s * flap;
   for (const leg of fairy.legs) leg.rotation.x = p.sitting ? -1.3 : 0.25 + Math.sin(t * 2) * 0.1;
 
@@ -1357,11 +1406,14 @@ function updateFairy(dt) {
     d.s.position.y -= dt * 0.3;
   }
 
-  // 요정이 창의 약 1/5, 맵의 약 1/5이 보이는 거리
-  const camPos = tmpV.copy(p.pos).addScaledVector(forward, -24);
-  camPos.y = p.pos.y + 15;
+  // 요정의 왼쪽 뒤 위에서 비스듬히 내려다봐요 (요정이 창의 약 1/5)
+  const leftX = -Math.cos(p.yaw), leftZ = Math.sin(p.yaw);
+  const camPos = tmpV.copy(p.pos).addScaledVector(forward, -7);
+  camPos.x += leftX * 9;
+  camPos.z += leftZ * 9;
+  camPos.y = p.pos.y + 8;
   miniCam.position.lerp(camPos, damp(4, dt));
-  miniCam.lookAt(tmpV2.copy(p.pos).addScaledVector(forward, 5).setY(p.pos.y - 1));
+  miniCam.lookAt(tmpV2.copy(p.pos).addScaledVector(forward, 2).setY(p.pos.y - 0.6));
 }
 
 // ===================================================================
@@ -1376,7 +1428,7 @@ function setPlaying(on) {
 
 function startGame() {
   ensureAudio();
-  Object.assign(player, { yaw: 0, pitch: 0, roll: 0, step: 0, speed: 0, stun: 0, bonkCool: 0, sitting: null, groomT: 0, sitCool: 0 });
+  Object.assign(player, { yaw: 0, pitch: 0, roll: 0, step: 0, speed: 0, stun: 0, bonkCool: 0, sitting: null, groomT: 0, sitCool: 0, hover: 0 });
   player.pos.copy(START);
   player.knock.set(0, 0, 0);
   caught = 0; timeLeft = TIME_LIMIT; playTime = 0;
@@ -1386,7 +1438,7 @@ function startGame() {
   for (const h of Object.values(hands)) poseHand(h, 'idle', 1);
   jar.g.position.copy(JAR_HIDDEN);
   forward.set(0, 0, -1);
-  miniCam.position.set(START.x, START.y + 15, START.z + 24);
+  miniCam.position.set(START.x - 9, START.y + 8, START.z + 7);
   shownSecond = -1;
   state = 'play';
   ui.start.classList.add('hidden');
