@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>반딧불이 모으기 · 달빛 호수</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- 위쪽 정보 -->
+<header id="hud" class="hidden">
+  <div class="info">
+    <span id="time" class="pill">⏱ 3:00</span>
+    <span class="pill jar-pill">
+      <span class="jar-icon" aria-hidden="true"></span>
+      <span id="jarDots" class="dots"><i></i><i></i><i></i><i></i><i></i></span>
+      <span id="jarCount">0 / 5</span>
+    </span>
+    <span id="speed" class="pill speed s0">둥둥 <b class="steps"><i></i><i></i><i></i><i></i></b></span>
+  </div>
+  <div class="corner">
+    <button id="sound" class="small" aria-label="소리 끄기">🔊</button>
+    <button id="stop" class="small">그만하기</button>
+  </div>
+</header>
+
+<!-- 오른쪽 위 작은 창 테두리 (3D는 같은 캔버스에 그림) -->
+<div id="miniFrame" class="hidden" aria-hidden="true"><span>3인칭</span></div>
+
+<!-- 안내 문구, 따콩 -->
+<div id="message" aria-live="polite"></div>
+<div id="bonk" aria-hidden="true"></div>
+
+<!-- 아래 키 안내 (휴대폰에서는 버튼) -->
+<nav id="keys" class="hidden" aria-label="조작 키">
+  <div class="group">
+    <span class="label">높이·방향</span>
+    <div class="wasd">
+      <button data-code="KeyW" class="key">W<small>위</small></button>
+      <button data-code="KeyA" class="key">A<small>왼쪽</small></button>
+      <button data-code="KeyS" class="key">S<small>아래</small></button>
+      <button data-code="KeyD" class="key">D<small>오른쪽</small></button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="label">속도</span>
+    <div class="col">
+      <button data-code="ArrowUp" class="key">↑<small>빠르게</small></button>
+      <button data-code="ArrowDown" class="key">↓<small>느리게</small></button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="label">손·담기</span>
+    <div class="row">
+      <button data-code="BracketLeft" class="key">[<small>왼손</small></button>
+      <button data-code="BracketRight" class="key">]<small>오른손</small></button>
+      <button data-code="Backslash" class="key wide">\<small>병에 담기</small></button>
+    </div>
+  </div>
+</nav>
+
+<!-- 시작 화면 -->
+<section id="startScreen" class="overlay">
+  <h1>반딧불이 모으기</h1>
+  <p>작은 요정이 되어 달빛 호수의 여름밤 숲을 날아요.<br>반딧불이 <b>5마리</b>를 투명한 병에 담으면 성공이에요.</p>
+  <ul class="howto">
+    <li><b>W S</b> 위·아래 &nbsp; <b>A D</b> 또는 <b>← →</b> 방향 돌리기 &nbsp; <b>↑ ↓</b> 속도</li>
+    <li>빠르게 다가가면 반딧불이가 흩어져요. <b>천천히</b> 다가가세요.</li>
+    <li>가까이에서 <b>[</b> 왼손 · <b>]</b> 오른손을 누르고 있으면 반딧불이가 손등에 앉아요.</li>
+    <li>손등에 앉으면 <b>\</b> (엔터 위) 키로 살포시 병에 담아요.</li>
+    <li>둥둥(속도 0) 떠서 나뭇가지에 닿으면 앉아서 쉴 수 있어요.</li>
+    <li>제한시간 3분 · <b>Ctrl + C</b> 또는 그만하기 버튼으로 멈춰요.</li>
+  </ul>
+  <button id="startBtn" class="big">시작하기</button>
+  <a class="home" href="../">← 메인으로</a>
+</section>
+
+<!-- 계속/그만 창 -->
+<section id="pauseScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
+  <h2 id="pauseTitle">잠깐 쉬어 갈까요?</h2>
+  <p id="pauseText">병에 담은 반딧불이는 그대로 있어요.</p>
+  <div class="buttons">
+    <button id="continueBtn" class="big">계속할까요</button>
+    <button id="quitBtn" class="big ghost">그만할까요</button>
+  </div>
+</section>
+
+<!-- 성공 화면 -->
+<section id="successScreen" class="overlay hidden">
+  <div class="big-jar" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  <h2>반딧불이 다섯 친구가 병 속에서 반짝여요.<br>오늘 밤은 참 따뜻하네요 ✨</h2>
+  <p id="resultText"></p>
+  <div class="buttons">
+    <button id="againBtn" class="big">다시하기</button>
+    <a class="big ghost" href="../">메인으로</a>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
