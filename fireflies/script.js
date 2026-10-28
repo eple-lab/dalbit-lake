@@ -8,9 +8,10 @@
 const LAKE_R = 28;          // 호수 반지름
 const WORLD_R = 72;         // 날 수 있는 범위
 const DRAGON_R = 11;        // 용이 헤엄치는 둥근 길
-const MAX_SPEED = 14;
-const ACCEL = 9;            // ↑ 누르고 있을 때 빨라지는 정도 (초당)
-const BRAKE = 12;           // ↓ 누르고 있을 때 느려지는 정도
+const MAX_SPEED = 14;       // 앞으로 최고 속도
+const MAX_BACK = 9;         // 뒤로 최고 속도
+const ACCEL = 9;            // ↑ ↓ 누르고 있을 때 빨라지는 정도 (초당)
+const BRAKE = 12;           // 반대쪽 키를 누를 때 멈추는 정도
 const COAST = 1.4;          // 손을 떼면 점점 느려지는 정도
 const FAST = 7.5;           // 이보다 빠르면 반딧불이가 흩어져요
 const CALL_RANGE = 13;      // 손을 내밀면 이 거리 안의 반딧불이가 다가와요
@@ -301,28 +302,23 @@ function addTree(type, x, z) {
 {
   const placed = [];
   let tries = 0;
-  while (placed.length < 32 && tries < 4000) {
+  while (placed.length < 12 && tries < 4000) {
     tries++;
     const a = rand() * Math.PI * 2, d = rr(LAKE_R + 5, WORLD_R + 14);
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     if (Math.hypot(x - START.x, z - START.z) < 11) continue;
     const roll = rand();
     const type = roll < 0.25 ? 'giant' : roll < 0.6 ? 'wide' : 'thin';
-    const need = type === 'giant' ? 14 : type === 'wide' ? 13 : 8;
+    const need = 18; // 12그루가 호수 둘레에 고르게 퍼지도록
     if (placed.some(p => Math.hypot(p.x - x, p.z - z) < Math.max(need, p.need))) continue;
     placed.push({ x, z, need });
     addTree(type, x, z);
   }
 
-  // 호수 위 작은 섬 세 개 (용이 헤엄치는 길과 물가 사이)
-  const islandMat = std(0x2b3a2c);
+  // 호수 위 작은 나무 세 그루 — 물속에서 몸통이 바로 솟아나요 (용이 헤엄치는 길과 물가 사이)
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + 0.6, d = (DRAGON_R + LAKE_R) / 2 + 1.5;
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    const island = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3, 0.5, 9), islandMat);
-    island.position.set(x, 0.1, z);
-    scene.add(island);
-    addTree('island', x, z);
+    addTree('island', Math.cos(a) * d, Math.sin(a) * d);
   }
 }
 
@@ -376,18 +372,21 @@ const dragon = (() => {
     blush.position.set(s * 0.95, -0.2, -0.8);
     head.add(blush);
   }
+  // 큰 눈: 머리에 살짝 묻힌 흰자 + 요정을 따라 움직이는 눈동자 + 위·아래 눈꺼풀
+  const EYE_R = 0.5;
+  const lidMat = std(0xb6e2d6, { emissive: 0x24463f, roughness: 0.6, flatShading: false });
   const eyes = [];
   for (const s of [-1, 1]) {
     const eye = new THREE.Group();
-    eye.position.set(s * 0.68, 0.42, -1.42);
-    const white = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 10), new THREE.MeshBasicMaterial({ color: 0xfffbf0 }));
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), new THREE.MeshBasicMaterial({ color: 0x2a1d33 }));
-    ball.position.set(s * 0.04, 0, -0.17);
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    shine.position.set(s * -0.04, 0.11, -0.4);
-    eye.add(white, ball, shine);
+    eye.position.set(s * 0.64, 0.45, -1.16);
+    const white = new THREE.Mesh(new THREE.SphereGeometry(EYE_R, 18, 14), new THREE.MeshBasicMaterial({ color: 0xfffbf0 }));
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.23, 14, 12), new THREE.MeshBasicMaterial({ color: 0x2a1d33 }));
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    const upper = new THREE.Mesh(new THREE.SphereGeometry(EYE_R * 1.06, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), lidMat);
+    const lower = new THREE.Mesh(new THREE.SphereGeometry(EYE_R * 1.06, 18, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), lidMat);
+    eye.add(white, pupil, shine, upper, lower);
     head.add(eye);
-    eyes.push(eye);
+    eyes.push({ eye, pupil, shine, upper, lower, look: new THREE.Vector3(0, 0, -1) });
   }
   const warmth = new THREE.PointLight(0xffc890, 1.0, 22);
   warmth.position.set(0, 1.5, -1);
@@ -401,6 +400,7 @@ const dragon = (() => {
   };
 })();
 
+const tmpEye = new THREE.Vector3();
 function dragonPathPos(theta, out) {
   return out.set(Math.cos(theta) * DRAGON_R, 0, Math.sin(theta) * DRAGON_R);
 }
@@ -424,14 +424,28 @@ function updateDragon(dt, t) {
     s.m.position.set(Math.cos(a) * r, i < 4 ? lerp(hp.y - 0.5, bodyY, (i + 1) / 5) : bodyY, Math.sin(a) * r);
   });
 
-  // 눈 깜박임 (몇 초마다 한 번), 요정이 다가오면 눈을 가늘게 뜨고 반겨요
+  // 눈 깜박임: 몇 초마다 위·아래 눈꺼풀이 닫혔다 열려요
   dragon.blinkIn -= dt;
-  if (dragon.blinkIn <= 0) { dragon.blink = 0.22; dragon.blinkIn = rr(2, 4.5); }
+  if (dragon.blinkIn <= 0) { dragon.blink = 0.26; dragon.blinkIn = rr(2, 4.5); }
   dragon.blink = Math.max(0, dragon.blink - dt);
-  const blinkScale = dragon.blink > 0 ? 0.08 : 1;
+  const closing = dragon.blink > 0 ? Math.sin((dragon.blink / 0.26) * Math.PI) : 0; // 0 → 1 → 0
+  // 요정이 다가오면 쳐다보며 살짝 눈을 가늘게 뜨고 반겨요
   const near = state === 'play' && player.pos.distanceTo(hp) < 14;
   dragon.squint = lerp(dragon.squint, near ? 1 : 0, damp(4, dt));
-  for (const e of dragon.eyes) e.scale.y = Math.min(blinkScale, lerp(1, 0.25, dragon.squint));
+  const open = Math.min(1 - closing, 1 - 0.3 * dragon.squint);
+  dragon.head.updateMatrixWorld();
+  for (const e of dragon.eyes) {
+    e.upper.rotation.x = 1.15 * open;
+    e.lower.rotation.x = -1.05 * open;
+    const want = tmpEye.set(0, 0, -1);
+    if (near) {
+      e.eye.worldToLocal(want.copy(camera.position)).normalize();
+      if (want.z > -0.25) want.set(0, 0, -1); // 뒤쪽이면 앞을 봐요
+    }
+    e.look.lerp(want, damp(6, dt)).normalize();
+    e.pupil.position.copy(e.look).multiplyScalar(0.3);
+    e.shine.position.copy(e.look).multiplyScalar(0.46).add(tmpEye.set(0.07, 0.09, 0));
+  }
   if (near && t - dragon.lastGreet > 25) {
     dragon.lastGreet = t;
     say('용이 눈을 가늘게 뜨고 반겨요 ☺', 3, true);
@@ -793,8 +807,8 @@ for (const h of Object.values(hands)) poseHand(h, 'idle', 1);
 // ===================================================================
 const fireflies = [];
 const clusterCenters = [];
-for (let i = 0; i < 4; i++) {
-  const a = (i / 4) * Math.PI * 2 + rr(0.2, 1.2), d = rr(16, 62);
+for (let i = 0; i < 6; i++) {
+  const a = (i / 6) * Math.PI * 2 + rr(0.2, 1.2), d = rr(16, 62);
   clusterCenters.push(new THREE.Vector3(Math.cos(a) * d, rr(3, 8), Math.sin(a) * d));
 }
 
@@ -817,16 +831,16 @@ function makeFirefly(kind, extra) {
   return f;
 }
 
-for (let i = 0; i < 12; i++) {
+for (let i = 0; i < 18; i++) {
   const a = rand() * Math.PI * 2;
   makeFirefly('dragon', { offset: new THREE.Vector3(Math.cos(a) * rr(3, 7), rr(0.5, 5), Math.sin(a) * rr(3, 7)) });
 }
 clusterCenters.forEach(c => {
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     makeFirefly('cluster', { center: c, offset: new THREE.Vector3(rr(-2.5, 2.5), rr(-1.2, 1.2), rr(-2.5, 2.5)) });
   }
 });
-for (let i = 0; i < 8; i++) makeFirefly('solo', { home: randomAir(), goal: randomAir() });
+for (let i = 0; i < 16; i++) makeFirefly('solo', { home: randomAir(), goal: randomAir() });
 
 function fireflyHome(f, t, out) {
   if (f.kind === 'dragon') {
@@ -868,7 +882,7 @@ let pauseReason = 'user';
 const player = {
   pos: START.clone(), yaw: 0, pitch: 0, roll: 0,
   step: 0, speed: 0, knock: new THREE.Vector3(),
-  stun: 0, bonkCool: 0, sitting: null, groomT: 0, sitCool: 0,
+  stun: 0, bonkCool: 0, sitting: null, groomT: 0, sitCool: 0, seat: new THREE.Vector3(),
 };
 let caught = 0, timeLeft = TIME_LIMIT, playTime = 0;
 let activeHand = null;          // 'left' | 'right' | null — 먼저 올린 손만 인정
@@ -876,6 +890,7 @@ let handFly = null;             // 다가오거나 손등에 앉은 반딧불이
 let capture = null;             // 병에 담는 동작
 let scatterMsgCool = 0;
 let nearbyFree = false;     // 손을 내밀면 다가올 반딧불이가 근처에 있는지 (안내 문구용)
+let sitSpot = null;         // 근처에 앉을 수 있는 가지 자리 (안내 문구와 ↓ 앉기용)
 let t = 0, last = performance.now();
 
 const down = new Set();
@@ -905,9 +920,10 @@ function updateMessage(dt) {
   if (msgTimer > 0) { text = msgText; warm = msgWarm; }
   else if (handFly && handFly.state === 'hand' && !capture) { text = '\\ 키로 살포시 담아요 ✨'; warm = true; }
   else if (handFly && handFly.state === 'approach') { text = '반딧불이가 천천히 다가와요…'; warm = true; }
+  else if (sitSpot && !activeHand) { text = '나무에 앉을 수 있어요. ↓ 아래 방향키를 눌러보세요 🌿'; warm = true; }
   else if (nearbyFree && !activeHand && !capture) {
-    text = player.speed > FAST ? '천천히… 빠르면 반딧불이가 놀라요' : '손을 올려보세요  [ 왼손 / ] 오른손 ✋';
-    warm = player.speed <= FAST;
+    text = Math.abs(player.speed) > FAST ? '천천히… 빠르면 반딧불이가 놀라요' : '손을 올려보세요  [ 왼손 / ] 오른손 ✋';
+    warm = Math.abs(player.speed) <= FAST;
   }
   else if (player.sitting) { text = '나뭇가지에서 쉬는 중 🌿'; }
   if (state !== 'play') text = '';
@@ -941,10 +957,12 @@ function updateHud() {
   ui.jarDots.forEach((d, i) => d.classList.toggle('on', i < caught));
   ui.jarCount.textContent = `${caught} / ${GOAL}`;
   const s = player.step;
-  if (ui.speed.dataset.step !== String(s)) {
-    ui.speed.dataset.step = String(s);
+  const backward = player.speed < -0.3;
+  const key = s + (backward ? "b" : "");
+  if (ui.speed.dataset.step !== key) {
+    ui.speed.dataset.step = key;
     ui.speed.className = `pill speed s${s}`;
-    ui.speed.firstChild.textContent = `${SPEED_NAMES[s]} `;
+    ui.speed.firstChild.textContent = `${backward ? "뒤로 · " : ""}${SPEED_NAMES[s]} `;
     ui.steps.forEach((el, i) => el.classList.toggle('on', i < s));
   }
 }
@@ -1003,6 +1021,7 @@ function press(code) {
   }
   if (capture) return;
 
+  if (code === 'ArrowDown' && sitSpot && !player.sitting) { sitOn(sitSpot); sitSpot = null; }
   if (code === 'BracketLeft' && !activeHand) activeHand = 'left';
   if (code === 'BracketRight' && !activeHand) activeHand = 'right';
   if (code === 'Backslash') {
@@ -1074,16 +1093,20 @@ function scatter(f) {
 }
 
 const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
+// 다가온 반딧불이가 손과 주변을 연둣빛으로 비춰요 (손이 그려지는 레이어 2도 비춤)
+const handLight = new THREE.PointLight(0xdfff8a, 0, 3.5);
+handLight.layers.enable(2);
+scene.add(handLight);
 const seatWorld = new THREE.Vector3();
 
 function updateFireflies(dt) {
   const playing = state === 'play';
-  const fast = playing && player.speed > FAST;
+  const fast = playing && Math.abs(player.speed) > FAST;
   const handObj = activeHand ? hands[activeHand] : null;
   if (handObj) handObj.seat.getWorldPosition(seatWorld);
 
   // 손을 올리고 천천히 있으면 가까운 반딧불이가 다가와요
-  if (playing && handObj && !handFly && !capture && player.speed <= FAST) {
+  if (playing && handObj && !handFly && !capture && Math.abs(player.speed) <= FAST) {
     let best = null, bestScore = Infinity;
     const inv = camera.matrixWorldInverse;
     for (const f of fireflies) {
@@ -1135,6 +1158,7 @@ function updateFireflies(dt) {
   }
 
   // 반짝임과 크기
+  handLight.intensity = 0;
   for (const f of fireflies) {
     if (f.state === 'jar') continue;
     const on = Math.pow(Math.max(0, Math.sin(t * f.blink + f.p1)), 2);
@@ -1142,11 +1166,15 @@ function updateFireflies(dt) {
     // 다가오거나 손에 있는 반딧불이는 더 크고 밝게
     const near = f.state === 'approach' || f.state === 'hand' || f.state === 'capture';
     const d = f.pos.distanceTo(camera.position);
-    const sc = near ? clamp(d * 0.32, 0.17, 0.75) : clamp(d * 0.11, 0.05, 1);
+    const sc = near ? clamp(d * 0.4, 0.24, 0.9) : clamp(d * 0.11, 0.05, 1);
     f.glow.position.copy(f.pos);
     f.core.position.copy(f.pos);
-    f.glow.scale.setScalar((near ? 1.6 : 1.1) * sc * (0.8 + 0.4 * k));
-    f.core.scale.setScalar((near ? 0.42 : 0.28) * sc);
+    f.glow.scale.setScalar((near ? 2.4 : 1.1) * sc * (0.8 + 0.4 * k));
+    f.core.scale.setScalar((near ? 0.6 : 0.28) * sc);
+    if (f === handFly) {
+      handLight.position.copy(f.pos);
+      handLight.intensity = 1.2 + 0.6 * k;
+    }
     f.glow.material.opacity = near ? 0.75 + 0.25 * k : 0.45 + 0.55 * k;
   }
 }
@@ -1209,14 +1237,18 @@ function updatePlayer(dt) {
 
   p.yaw += turn * 1.5 * dt;
   forward.set(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-  // ↑ 누르는 동안 빨라지고, ↓ 누르는 동안 느려지고, 손을 떼면 점점 느려져요
-  const up = down.has('ArrowUp'), slow = down.has('ArrowDown');
-  if (p.sitting || busy || slow) p.speed = Math.max(0, p.speed - BRAKE * dt);
-  else if (up && !stunned) p.speed = Math.min(MAX_SPEED, p.speed + ACCEL * dt);
-  else p.speed = Math.max(0, p.speed - COAST * dt);
-  p.step = speedStep(p.speed);
+  // ↑ 앞으로, ↓ 뒤로 — 오래 누를수록 빨라지고, 손을 떼면 점점 느려져요 (반대쪽을 누르면 먼저 빨리 멈춰요)
+  const fwd = down.has('ArrowUp') && !stunned, back = down.has('ArrowDown') && !stunned;
+  const toward0 = (v, a) => v > 0 ? Math.max(0, v - a) : Math.min(0, v + a);
+  if (p.sitting || busy) p.speed = toward0(p.speed, BRAKE * dt);
+  else if (fwd && !back) p.speed = Math.min(MAX_SPEED, p.speed + (p.speed < 0 ? BRAKE : ACCEL) * dt);
+  else if (back && !fwd) p.speed = Math.max(-MAX_BACK, p.speed - (p.speed > 0 ? BRAKE : ACCEL) * dt);
+  else p.speed = toward0(p.speed, COAST * dt);
+  p.step = speedStep(Math.abs(p.speed));
 
-  if (!p.sitting) {
+  if (p.sitting) {
+    p.pos.lerp(p.seat, damp(5, dt));
+  } else {
     p.pos.addScaledVector(forward, p.speed * dt);
     p.pos.y += lift * 4 * dt;
     p.pos.addScaledVector(p.knock, dt);
@@ -1236,12 +1268,14 @@ function updatePlayer(dt) {
 
   if (!p.sitting) collide();
   p.sitCool = Math.max(0, p.sitCool - dt);
-  if (!p.sitting && p.speed < 0.3 && !busy && p.sitCool <= 0) trySit();
+  if (!p.sitting && Math.abs(p.speed) < 0.3 && !busy && p.sitCool <= 0) trySit();
+  // 나무 가까이에서 천천히 있으면 "↓ 로 앉기" 안내
+  sitSpot = !p.sitting && !busy && Math.abs(p.speed) < 2.5 && p.sitCool <= 0 ? findSeat(4, 4, 3) : null;
 
   // 1인칭 카메라: 숨 쉬듯 둥둥, 비틀거림, 기울임
   const breathe = Math.sin(t * Math.PI * 2 / 4);
   // 멈춰 있을수록 더 크게 둥둥
-  const still = p.sitting ? 0 : clamp(1 - p.speed / 3, 0, 1);
+  const still = p.sitting ? 0 : clamp(1 - Math.abs(p.speed) / 3, 0, 1);
   p.hover = lerp(p.hover || 0, still, damp(2, dt));
   const hover = p.sitting ? 0 : Math.sin(t * 1.6) * (0.06 + 0.32 * p.hover);
   const sway = p.sitting ? 0 : Math.sin(t * 1.1) * 0.035 * p.hover;
@@ -1261,7 +1295,7 @@ function bonk(normal) {
   p.bonkCool = 1.2;
   p.stun = 1;
   p.knock.copy(normal).multiplyScalar(5);
-  p.speed = Math.min(p.speed, 2);
+  p.speed *= 0.15;
   sfx.bonk();
   showBonk();
   // 손등에 있던 반딧불이만 놀라 날아가요 (병 속 친구들은 그대로)
@@ -1311,22 +1345,37 @@ function collide() {
   }
 }
 
-function trySit() {
+// 가장 가까운 가지 자리 찾기 — reach: 가로 거리, below/above: 앉을 높이보다 아래·위로 얼마까지
+const SEAT = 0.7; // 가지 위 눈높이
+function findSeat(reach, below, above) {
   const p = player.pos;
+  let best = null, bestD = Infinity;
   for (const b of branches) {
     const vx = b.bx - b.ax, vz = b.bz - b.az;
-    const len2 = vx * vx + vz * vz;
-    const k = clamp(((p.x - b.ax) * vx + (p.z - b.az) * vz) / len2, 0, 1);
+    const k = clamp(((p.x - b.ax) * vx + (p.z - b.az) * vz) / (vx * vx + vz * vz), 0.15, 1);
     const cx = b.ax + vx * k, cz = b.az + vz * k;
-    const h = p.y - b.top;
-    if (Math.hypot(p.x - cx, p.z - cz) < 0.9 && h > -0.2 && h < 1.5) {
-      player.sitting = b;
-      p.set(cx, b.top + 0.7, cz);
-      player.groomT = 1.5;
-      say('나뭇가지에 살포시 앉았어요 🌿', 2);
-      return;
+    const d = Math.hypot(p.x - cx, p.z - cz);
+    const h = p.y - (b.top + SEAT);
+    if (d < reach && h > -below && h < above && d + Math.abs(h) < bestD) {
+      bestD = d + Math.abs(h);
+      best = { b, x: cx, y: b.top + SEAT, z: cz };
     }
   }
+  return best;
+}
+
+function sitOn(seat) {
+  player.sitting = seat.b;
+  player.seat.set(seat.x, seat.y, seat.z); // 그 자리로 살포시 날아가 앉아요
+  player.speed = 0;
+  player.groomT = 1.5;
+  say('나뭇가지에 살포시 앉았어요 🌿', 2);
+}
+
+// 멈춘 채 가지에 닿으면 저절로 앉아요
+function trySit() {
+  const seat = findSeat(0.9, 0.9, 0.8);
+  if (seat) sitOn(seat);
 }
 
 // ===================================================================
@@ -1372,7 +1421,7 @@ function updateRig(dt) {
       leg.rotation.x = lerp(leg.rotation.x, 0.75 + swing * 0.2, k);
     } else {
       leg.position.set(s * 0.08, lerp(leg.position.y, -0.36, k), -0.6);
-      leg.rotation.x = lerp(leg.rotation.x, 1.0 + swing * 0.06 + p.speed * 0.012, k);
+      leg.rotation.x = lerp(leg.rotation.x, 1.0 + swing * 0.06 + Math.abs(p.speed) * 0.012, k);
     }
   });
   myWing.visible = sitting;
@@ -1389,16 +1438,16 @@ function updateFairy(dt) {
   g.visible = state !== 'start';
   g.position.set(p.pos.x, p.pos.y + (p.sitting ? -0.2 : -0.4 + Math.sin(t * 1.6) * (0.08 + 0.3 * (p.hover || 0))), p.pos.z);
   g.rotation.set(0, p.yaw, p.roll * 2);
-  const flap = p.sitting ? 0.25 + Math.sin(t * 2) * 0.1 : 0.55 + Math.sin(t * (p.speed > 0.3 ? 26 : 16)) * 0.45;
+  const flap = p.sitting ? 0.25 + Math.sin(t * 2) * 0.1 : 0.55 + Math.sin(t * (Math.abs(p.speed) > 0.3 ? 26 : 16)) * 0.45;
   for (const { pivot, s } of fairy.wings) pivot.rotation.y = s * flap;
   for (const leg of fairy.legs) leg.rotation.x = p.sitting ? -1.3 : 0.25 + Math.sin(t * 2) * 0.1;
 
   fairy.dustTimer -= dt;
-  if (state === 'play' && p.speed > 0.5 && fairy.dustTimer <= 0) {
+  if (state === 'play' && Math.abs(p.speed) > 0.5 && fairy.dustTimer <= 0) {
     fairy.dustTimer = 0.06;
     const d = fairy.dust[fairy.dustIndex++ % fairy.dust.length];
     d.life = 1;
-    d.s.position.copy(g.position).addScaledVector(forward, -1.2).add(tmpV.set(rr(-0.4, 0.4), rr(-0.2, 0.8), rr(-0.4, 0.4)));
+    d.s.position.copy(g.position).addScaledVector(forward, -1.2 * Math.sign(p.speed)).add(tmpV.set(rr(-0.4, 0.4), rr(-0.2, 0.8), rr(-0.4, 0.4)));
   }
   for (const d of fairy.dust) {
     d.life = Math.max(0, d.life - dt * 0.9);
