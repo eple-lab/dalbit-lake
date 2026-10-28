@@ -826,6 +826,7 @@ function makeFirefly(kind, extra) {
     state: 'free', timer: 0, calm: 0,
     p1: rand() * 6, p2: rand() * 6, p3: rand() * 6, blink: rr(1.4, 2.6),
     wob: rr(1.2, 2.6), offset: new THREE.Vector3(),
+    ph: rand() * 50, pace: 1, paceGoal: 1, paceIn: rr(0.5, 3),
   }, extra);
   fireflies.push(f);
   return f;
@@ -853,9 +854,10 @@ function fireflyHome(f, t, out) {
   } else {
     out.copy(f.home);
   }
-  out.x += Math.sin(t * 0.7 * f.wob + f.p1) * 1.2;
-  out.y += Math.sin(t * 0.9 * f.wob + f.p2) * 0.5;
-  out.z += Math.cos(t * 0.6 * f.wob + f.p3) * 1.2;
+  // ph는 반딧불이마다 빨랐다 느렸다 하는 자기만의 시계예요
+  out.x += Math.sin(f.ph * 0.7 * f.wob + f.p1) * 2.4;
+  out.y += Math.sin(f.ph * 0.9 * f.wob + f.p2) * 0.9;
+  out.z += Math.cos(f.ph * 0.6 * f.wob + f.p3) * 2.4;
   out.y = Math.max(out.y, 1.2);
   return out;
 }
@@ -1124,12 +1126,21 @@ function updateFireflies(dt) {
   for (const f of fireflies) {
     if (f.state === 'jar') continue;
     if (f.state === 'free') {
+      // 빨랐다 느렸다: 가끔 휙 날았다가, 한동안 느긋하게 떠다녀요
+      f.paceIn -= dt;
+      if (f.paceIn <= 0) {
+        const dash = rand() < 0.4;
+        f.paceGoal = dash ? rr(3, 5) : rr(0.4, 1.4);
+        f.paceIn = dash ? rr(0.5, 1.2) : rr(1.5, 4);
+      }
+      f.pace = lerp(f.pace, f.paceGoal, damp(4, dt));
+      f.ph += dt * f.pace;
       fireflyHome(f, t, tmpV);
-      f.pos.lerp(tmpV, damp(f.calm > 0 ? 0.35 : 0.9, dt));
+      f.pos.lerp(tmpV, damp(f.calm > 0 ? 0.8 : 3, dt));
       f.calm = Math.max(0, f.calm - dt);
       if (playing && f.pos.distanceTo(player.pos) < CALL_RANGE) nearbyFree = true;
       if (f.kind === 'solo' && f.home.distanceTo(f.goal) < 1) f.goal = randomAir();
-      if (f.kind === 'solo') f.home.lerp(f.goal, damp(0.06, dt));
+      if (f.kind === 'solo') f.home.lerp(f.goal, damp(0.12 * f.pace, dt));
       if (fast && f.pos.distanceTo(player.pos) < 7) {
         scatter(f);
         if (scatterMsgCool <= 0) { say('앗, 너무 빨랐어요. 천천히 다가가요', 2.5); scatterMsgCool = 3; }
@@ -1144,7 +1155,7 @@ function updateFireflies(dt) {
       if (!handObj || fast) { fast ? scatter(f) : letGo(f, 1); if (handFly === f) handFly = null; continue; }
       const d = f.pos.distanceTo(seatWorld);
       if (d > 12) { letGo(f, 1); continue; }
-      const sp = Math.min(d, (0.6 + Math.min(d, 3) * 0.5) * dt);
+      const sp = Math.min(d, (1 + Math.min(d, 4) * 0.8) * dt); // 멀리서는 조금 빠르게, 손 가까이에선 살포시
       f.pos.add(tmpV.copy(seatWorld).sub(f.pos).normalize().multiplyScalar(sp));
       f.pos.y += Math.sin(t * 5 + f.p1) * 0.004;
       if (d < 1.4) { f.glow.layers.set(2); f.core.layers.set(2); }
