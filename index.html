@@ -17,8 +17,17 @@
     display: flex; justify-content: space-between; align-items: center;
     pointer-events: none; font-size: 18px; text-shadow: 0 0 8px #8fb4ff;
   }
+  #hud .group { display: flex; align-items: center; gap: 16px; }
+  #time { opacity: .75; font-variant-numeric: tabular-nums; }
   #combo { opacity: 0; transition: opacity .2s; color: #ffe9a8; }
   #lives { letter-spacing: 4px; }
+  #stop {
+    pointer-events: auto; padding: 6px 14px; font-size: 14px; font-family: inherit;
+    border-radius: 999px; border: 1px solid rgba(185, 204, 255, .6); color: #e8ecff; cursor: pointer;
+    background: rgba(10, 14, 32, .55);
+  }
+  #stop:hover { background: rgba(185, 204, 255, .2); }
+  #stop.hidden { display: none; }
   #overlay {
     position: fixed; inset: 0; padding: 16px;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -31,20 +40,20 @@
   }
   #overlay p { margin: 4px 0; opacity: .85; line-height: 1.7; }
   #result { font-size: 22px; margin-bottom: 8px !important; color: #ffe9a8; opacity: 1 !important; }
-  button {
+  #overlay button {
     margin-top: 24px; padding: 12px 36px; font-size: 18px; font-family: inherit;
     border-radius: 999px; border: 1px solid #b9ccff; color: #fff; cursor: pointer;
     background: rgba(185, 204, 255, .12); box-shadow: 0 0 20px rgba(185, 204, 255, .25);
   }
-  button:hover { background: rgba(185, 204, 255, .25); }
+  #overlay button:hover { background: rgba(185, 204, 255, .25); }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="hud">
-  <span id="score">별빛 0</span>
+  <span class="group"><span id="score">별빛 0</span><span id="time">⏱ 00:00</span></span>
   <span id="combo"></span>
-  <span id="lives"></span>
+  <span class="group"><span id="lives"></span><button id="stop" class="hidden">그만하기</button></span>
 </div>
 <div id="overlay">
   <h1>달빛 호수</h1>
@@ -52,7 +61,7 @@
   <p>호수 위의 작은 배를 움직여 떨어지는 <b>별빛</b>을 담으세요.</p>
   <p>황금 별은 5배, 연속으로 담으면 점수가 커집니다.</p>
   <p>보랏빛 <b>그림자 방울</b>에 닿으면 달이 하나 기웁니다.</p>
-  <p style="font-size:14px;opacity:.6">← → / A D 키, 또는 마우스·터치로 이동</p>
+  <p style="font-size:14px;opacity:.6">← → / A D 키, 또는 마우스·터치로 이동 · Esc 또는 그만하기 버튼으로 처음 화면</p>
   <button id="start">시작하기</button>
 </div>
 <script>
@@ -64,6 +73,8 @@ const $lives = document.getElementById('lives');
 const $overlay = document.getElementById('overlay');
 const $result = document.getElementById('result');
 const $start = document.getElementById('start');
+const $time = document.getElementById('time');
+const $stop = document.getElementById('stop');
 
 let W, H, S, horizon;
 let bgStars = [], mountains = [], fireflies = [];
@@ -104,9 +115,10 @@ function resize() {
 
 // ---------- state ----------
 let boat = null;
-let items = [], ripples = [], particles = [], texts = [];
+let items = [], ripples = [], particles = [], texts = [], flashes = [], shower = [];
 let score = 0, lives = 3, combo = 0, elapsed = 0, spawnTimer = 0, shake = 0;
 let running = false, last = 0, t = 0;
+let ending = false, endTimer = 0, showerTimer = 0, skyFlash = 0, shownSecond = -1;
 let best = 0;
 try { best = +localStorage.getItem('dalbit-lake-best') || 0; } catch (e) {}
 
@@ -114,11 +126,22 @@ const keys = {};
 let pointerX = null;
 
 function reset() {
-  boat = { x: W / 2, y: H * 0.8, w: Math.max(64, 100 * S), vx: 0 };
-  items = []; ripples = []; particles = []; texts = [];
+  boat = { x: W / 2, y: H * 0.8, w: Math.max(64, 100 * S), vx: 0, glow: 0 };
+  items = []; ripples = []; particles = []; texts = []; flashes = []; shower = [];
   score = 0; lives = 3; combo = 0; elapsed = 0; spawnTimer = 0.6; shake = 0;
+  ending = false; showerTimer = 0; skyFlash = 0;
   pointerX = null;
   updateHud();
+  updateTime();
+}
+
+function updateTime() {
+  const sec = Math.floor(elapsed);
+  if (sec === shownSecond) return;
+  shownSecond = sec;
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  $time.textContent = `⏱ ${mm}:${ss}`;
 }
 
 function updateHud() {
@@ -142,7 +165,8 @@ function spawn() {
     type, r: size,
     x: size + Math.random() * (W - size * 2), y: -20,
     vy: type === 'gold' ? speed * 1.25 : speed,
-    sway: Math.random() * 30 * S, phase: Math.random() * Math.PI * 2,
+    sway: (type === 'gold' ? 40 + Math.random() * 30 : Math.random() * 30) * S,
+    phase: Math.random() * Math.PI * 2,
     rot: Math.random() * Math.PI, landY: boat.y + 30 + Math.random() * (H - boat.y - 40),
   });
 }
@@ -152,6 +176,22 @@ function burst(x, y, color, n) {
     const a = Math.random() * Math.PI * 2, v = (Math.random() * 160 + 40) * S;
     particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60 * S, life: 1, color });
   }
+}
+
+// "화악~" — light ring, glow, and sparkles that bloom outward and float up
+function bloom(x, y, gold) {
+  flashes.push({ x, y, life: 1, gold, max: (gold ? 190 : 120) * Math.max(S, 0.7) });
+  const n = gold ? 46 : 26;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = (Math.random() * 260 + 120) * S;
+    particles.push({
+      x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80 * S,
+      life: 1, spark: true, size: (Math.random() * 3 + 2.5) * Math.max(S, 0.7),
+      color: gold ? (Math.random() < 0.5 ? '#fff1a0' : '#d9ff8a') : (Math.random() < 0.5 ? '#ffffff' : '#b9d0ff'),
+    });
+  }
+  boat.glow = 1;
+  if (gold) skyFlash = 1;
 }
 
 // ---------- update ----------
@@ -188,21 +228,30 @@ function update(dt) {
     it.phase += dt * 2;
     it.rot += dt * (it.type === 'dark' ? 1 : 2);
     const ix = it.x + Math.sin(it.phase) * it.sway;
+    if (it.type === 'gold' && Math.random() < dt * 18) {
+      particles.push({
+        x: ix + (Math.random() - 0.5) * it.r, y: it.y + (Math.random() - 0.5) * it.r,
+        vx: (Math.random() - 0.5) * 30 * S, vy: -20 * S, life: 0.7, spark: true,
+        size: (Math.random() * 1.5 + 1.5) * Math.max(S, 0.7), color: Math.random() < 0.5 ? '#fff1a0' : '#d9ff8a',
+      });
+    }
 
     const hitY = it.y > boat.y - boat.w * 0.35 - it.r && it.y < boat.y + 10;
     if (hitY && Math.abs(ix - boat.x) < boat.w / 2 + it.r * 0.6 && it.y < boat.y + 10) {
       items.splice(i, 1);
       if (it.type === 'dark') {
-        lives--; combo = 0; shake = 14 * S;
+        lives--; combo = 0;
         burst(ix, it.y, '#9b6bff', 22);
+        if (lives <= 0) { updateHud(); gameOver(); return; }
+        shake = 14 * S;
         texts.push({ x: ix, y: it.y - 20, s: '달이 기울었어요', life: 1, color: '#c9a6ff' });
-        if (lives <= 0) { gameOver(); return; }
       } else {
         combo++;
-        const gain = (it.type === 'gold' ? 5 : 1) * multiplier();
+        const gold = it.type === 'gold';
+        const gain = (gold ? 5 : 1) * multiplier();
         score += gain;
-        burst(ix, it.y, it.type === 'gold' ? '#ffd76a' : '#cfe0ff', it.type === 'gold' ? 26 : 12);
-        texts.push({ x: ix, y: it.y - 20, s: `+${gain}`, life: 1, color: it.type === 'gold' ? '#ffd76a' : '#e3ecff' });
+        bloom(ix, it.y, gold);
+        texts.push({ x: ix, y: it.y - 20, s: `+${gain}`, life: 1, color: gold ? '#ffd76a' : '#e3ecff', big: gold });
       }
       updateHud();
       continue;
@@ -217,14 +266,22 @@ function update(dt) {
     }
   }
 
+  updateTime();
+}
+
+// effects keep animating on the title screen and during the ending shower
+function updateEffects(dt) {
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
     rp.r += 46 * S * dt; rp.life -= dt * 0.8;
     if (rp.life <= 0) ripples.splice(i, 1);
   }
+  const drag = Math.pow(0.04, dt);
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * S * dt; p.life -= dt * 1.4;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.spark) { p.vx *= drag; p.vy = p.vy * drag - 30 * S * dt; p.life -= dt * 0.9; }
+    else { p.vy += 260 * S * dt; p.life -= dt * 1.4; }
     if (p.life <= 0) particles.splice(i, 1);
   }
   for (let i = texts.length - 1; i >= 0; i--) {
@@ -232,7 +289,48 @@ function update(dt) {
     tx.y -= 40 * dt; tx.life -= dt * 1.1;
     if (tx.life <= 0) texts.splice(i, 1);
   }
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    flashes[i].life -= dt * 1.5;
+    if (flashes[i].life <= 0) flashes.splice(i, 1);
+  }
+
+  // ending: stars pour down from the sky
+  if (showerTimer > 0) {
+    showerTimer -= dt;
+    const rate = showerTimer > 1 ? 90 : 90 * showerTimer;
+    let n = rate * dt;
+    while (n > 0) {
+      if (Math.random() < n) spawnShowerStar();
+      n--;
+    }
+  }
+  for (let i = shower.length - 1; i >= 0; i--) {
+    const s = shower[i];
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.y > H + 60 || s.x < -100) shower.splice(i, 1);
+  }
+
+  if (boat) boat.glow = Math.max(0, boat.glow - dt * 1.5);
+  skyFlash = Math.max(0, skyFlash - dt * 1.8);
   shake = Math.max(0, shake - dt * 40);
+
+  if (ending) {
+    endTimer -= dt;
+    if (endTimer <= 0) { ending = false; showResult(); }
+  }
+}
+
+function spawnShowerStar() {
+  const v = (500 + Math.random() * 500) * Math.max(H / 800, 0.7);
+  const a = Math.PI / 2 + 0.35 + Math.random() * 0.15;
+  const hue = Math.random();
+  shower.push({
+    x: Math.random() * (W + 300), y: -40 - Math.random() * 120,
+    vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+    len: (60 + Math.random() * 120) * Math.max(S, 0.7),
+    size: (Math.random() * 2 + 1.5) * Math.max(S, 0.7),
+    color: hue < 0.2 ? '255,226,138' : hue < 0.35 ? '217,255,138' : hue < 0.65 ? '185,208,255' : '255,255,255',
+  });
 }
 
 // ---------- draw ----------
@@ -348,10 +446,26 @@ function draw() {
         ctx.beginPath(); ctx.arc(ix, it.y, it.r * 2.2, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#12061f';
         ctx.beginPath(); ctx.arc(ix, it.y, it.r * 0.7, 0, Math.PI * 2); ctx.fill();
+      } else if (it.type === 'gold') {
+        // firefly-like: breathes bigger and smaller, glow flickers
+        const pulse = 0.7 + 0.45 * (0.5 + 0.5 * Math.sin(t * 5.5 + it.phase * 2));
+        const flick = 0.75 + 0.25 * Math.sin(t * 17 + it.phase * 5);
+        const gr = it.r * 3.4 * pulse;
+        ctx.globalCompositeOperation = 'lighter';
+        const g = ctx.createRadialGradient(ix, it.y, 0, ix, it.y, gr);
+        g.addColorStop(0, `rgba(255,245,170,${0.9 * flick})`);
+        g.addColorStop(0.3, `rgba(230,255,130,${0.45 * flick})`);
+        g.addColorStop(1, 'rgba(200,255,100,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(ix, it.y, gr, 0, Math.PI * 2); ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.shadowBlur = 22 * pulse; ctx.shadowColor = '#ffe76a';
+        ctx.fillStyle = '#fff6c2';
+        drawStarShape(ix, it.y, it.r * pulse, it.rot);
+        ctx.shadowBlur = 0;
       } else {
-        const gold = it.type === 'gold';
-        ctx.shadowBlur = 18; ctx.shadowColor = gold ? '#ffcf5a' : '#a9c4ff';
-        ctx.fillStyle = gold ? '#ffe28a' : '#eef3ff';
+        ctx.shadowBlur = 18; ctx.shadowColor = '#a9c4ff';
+        ctx.fillStyle = '#eef3ff';
         drawStarShape(ix, it.y, it.r, it.rot);
         ctx.shadowBlur = 0;
         // faint trail
@@ -364,18 +478,70 @@ function draw() {
     drawBoat();
   }
 
+  ctx.globalCompositeOperation = 'lighter';
+
+  // catch bloom: soft glow + expanding light ring
+  for (const f of flashes) {
+    const k = 1 - f.life, e = 1 - Math.pow(1 - k, 3);
+    const rr = f.max * (0.2 + e);
+    const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, rr);
+    const c = f.gold ? '255,230,140' : '200,220,255';
+    g.addColorStop(0, `rgba(${c},${0.55 * f.life})`);
+    g.addColorStop(1, `rgba(${c},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(f.x, f.y, rr, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(${c},${0.8 * f.life})`;
+    ctx.lineWidth = 3 * f.life + 0.5;
+    ctx.beginPath(); ctx.arc(f.x, f.y, rr * 0.8, 0, Math.PI * 2); ctx.stroke();
+    // vertical beam of light rising from the boat
+    ctx.fillStyle = `rgba(${c},${0.18 * f.life})`;
+    const bw = f.max * 0.25 * f.life;
+    ctx.fillRect(f.x - bw / 2, 0, bw, f.y);
+  }
+
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    if (p.spark) {
+      const s = p.size * (0.6 + 0.4 * p.life);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - s * 2); ctx.lineTo(p.x + s * 0.4, p.y - s * 0.4);
+      ctx.lineTo(p.x + s * 2, p.y); ctx.lineTo(p.x + s * 0.4, p.y + s * 0.4);
+      ctx.lineTo(p.x, p.y + s * 2); ctx.lineTo(p.x - s * 0.4, p.y + s * 0.4);
+      ctx.lineTo(p.x - s * 2, p.y); ctx.lineTo(p.x - s * 0.4, p.y - s * 0.4);
+      ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    }
   }
   ctx.globalAlpha = 1;
 
+  // ending star shower
+  for (const s of shower) {
+    const sp = Math.hypot(s.vx, s.vy);
+    const tx = s.x - s.vx / sp * s.len, ty = s.y - s.vy / sp * s.len;
+    const g = ctx.createLinearGradient(s.x, s.y, tx, ty);
+    g.addColorStop(0, `rgba(${s.color},0.95)`);
+    g.addColorStop(1, `rgba(${s.color},0)`);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = s.size;
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.fillStyle = `rgba(${s.color},1)`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.size * 1.3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (skyFlash > 0) {
+    ctx.fillStyle = `rgba(255,240,180,${0.12 * skyFlash})`;
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
   ctx.textAlign = 'center';
-  ctx.font = `${Math.max(14, 20 * S)}px "Malgun Gothic", sans-serif`;
   for (const tx of texts) {
     ctx.globalAlpha = Math.max(0, tx.life);
     ctx.fillStyle = tx.color;
+    const fs = Math.max(14, 20 * S) * (tx.big ? 1.6 : 1) * (1 + 0.3 * Math.max(0, tx.life - 0.7));
+    ctx.font = `bold ${fs}px "Malgun Gothic", sans-serif`;
     ctx.fillText(tx.s, tx.x, tx.y);
   }
   ctx.globalAlpha = 1;
@@ -419,7 +585,7 @@ function drawBoat() {
   ctx.strokeStyle = '#4a3b5e';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(lx, -h * 0.1); ctx.lineTo(lx, ly - h * 0.6); ctx.stroke();
-  const flicker = 0.85 + Math.sin(t * 9) * 0.08 + Math.sin(t * 13.7) * 0.05;
+  const flicker = (0.85 + Math.sin(t * 9) * 0.08 + Math.sin(t * 13.7) * 0.05) * (1 + boat.glow * 0.9);
   const lg = ctx.createRadialGradient(lx, ly, 0, lx, ly, h * 3.2 * flicker);
   lg.addColorStop(0, 'rgba(255,214,140,.75)');
   lg.addColorStop(1, 'rgba(255,190,110,0)');
@@ -447,6 +613,7 @@ function frame(now) {
   last = now;
   t += dt;
   if (running) update(dt);
+  updateEffects(dt);
   draw();
   requestAnimationFrame(frame);
 }
@@ -455,11 +622,33 @@ function start() {
   reset();
   running = true;
   $overlay.classList.add('hidden');
+  $stop.classList.remove('hidden');
+}
+
+// 그만하기: back to the title screen without a result
+function stopGame() {
+  if (!running && !ending) return;
+  running = false; ending = false; showerTimer = 0;
+  boat = null; items = []; shower = []; flashes = []; particles = []; texts = [];
+  combo = 0; shake = 0; skyFlash = 0;
+  $stop.classList.add('hidden');
+  $result.innerHTML = best ? `<span style="font-size:15px;opacity:.7">최고 기록 ${best}</span>` : '';
+  $start.textContent = '시작하기';
+  $overlay.classList.remove('hidden');
 }
 
 function gameOver() {
   running = false;
+  ending = true;
+  endTimer = 2.6;
+  showerTimer = 3.2;
+  for (const it of items) burst(it.x + Math.sin(it.phase) * it.sway, it.y, '#cfe0ff', 4);
   items = [];
+  $stop.classList.add('hidden');
+  texts.push({ x: W / 2, y: H * 0.4, s: '달이 모두 기울었어요', life: 2.2, color: '#e8ecff', big: true });
+}
+
+function showResult() {
   const isBest = score > best;
   if (isBest) {
     best = score;
@@ -474,7 +663,8 @@ function gameOver() {
 // ---------- input ----------
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if ((e.code === 'Space' || e.code === 'Enter') && !running) { e.preventDefault(); start(); }
+  if ((e.code === 'Space' || e.code === 'Enter') && !running && !ending) { e.preventDefault(); start(); }
+  if (e.code === 'Escape' && running) stopGame();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 canvas.addEventListener('pointerdown', e => { pointerX = e.clientX; });
@@ -483,6 +673,7 @@ canvas.addEventListener('pointermove', e => {
 });
 canvas.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') pointerX = null; });
 $start.addEventListener('click', start);
+$stop.addEventListener('click', stopGame);
 addEventListener('resize', resize);
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
