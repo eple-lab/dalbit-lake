@@ -6,7 +6,7 @@
 - 위치: `fireflies/` 폴더 → https://eple-lab.github.io/dalbit-lake/fireflies/
 - 메인 페이지 카드: "반딧불이 모으기" (지금은 "준비 중")
 - 작성: 2026-10-28 · 상태: **확정 (10/28) — 게임 만들기 시작**
-- 바탕 문서: [tinkerbell-request.md](../tinkerbell-request.md)
+- 바탕 문서: [firefly-request.md](../firefly-request.md)
 
 > 인터뷰로 모든 항목을 확정했습니다. 바뀌는 내용은 맨 아래 결정 기록에 날짜와 함께 남깁니다.
 
