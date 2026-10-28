@@ -158,7 +158,7 @@ const multiplier = () => 1 + Math.floor(combo / 5);
 function spawn() {
   const r = Math.random();
   const darkChance = Math.min(0.14 + elapsed * 0.004, 0.34);
-  const type = r < darkChance ? 'dark' : r < darkChance + 0.07 ? 'gold' : 'star';
+  const type = r < darkChance ? 'dark' : r < darkChance + 0.12 ? 'gold' : 'star';
   const size = (type === 'gold' ? 15 : type === 'dark' ? 14 : 11) * Math.max(S, 0.7);
   const speed = (110 + Math.min(elapsed * 3.5, 200) + Math.random() * 60) * Math.max(H / 800, 0.7);
   items.push({
