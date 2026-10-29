@@ -4,6 +4,20 @@
 
 👉 플레이: https://eple-lab.github.io/dalbit-lake/starlight/
 
+## 화면
+
+**시작 화면**
+
+![별빛 받기 시작 화면](../docs/images/starlight-start.jpg)
+
+**황금 별을 받는 순간** — 빛 고리, 빛기둥, 반짝이가 "화악" 퍼지고 배의 등불이 환해져요.
+
+![황금 별을 받아 빛 고리와 반짝이가 퍼지는 순간](../docs/images/starlight-gold.jpg)
+
+**별이 쏟아지는 엔딩** — 마지막 달을 잃으면 화면 흔들림 대신 별이 비처럼 쏟아져요.
+
+![별이 비처럼 쏟아지는 엔딩](../docs/images/starlight-ending.jpg)
+
 ## 규칙
 
 | 떨어지는 것 | 받으면 |
